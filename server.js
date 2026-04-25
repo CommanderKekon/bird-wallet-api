@@ -85,7 +85,6 @@ app.post('/api/plaid/get-transactions', async (req, res) => {
 
 // ─── EXPERIAN SETUP ─────────────────────────────────────────
 
-// Helper: get Experian access token
 const getExperianToken = async () => {
   const res = await fetch(`${process.env.EXPERIAN_BASE_URL}/oauth2/v1/token`, {
     method: 'POST',
@@ -102,39 +101,44 @@ const getExperianToken = async () => {
     })
   });
   const data = await res.json();
-  console.log('Experian token response status:', data.access_token ? 'success' : 'failed');
+  console.log('Experian token status:', data.access_token ? 'success' : 'failed');
   return data.access_token;
 };
 
 // 5. Get credit score from Experian
 app.post('/api/experian/credit-score', async (req, res) => {
   try {
-    const { firstName, lastName, address, city, state, zip } = req.body;
-
     console.log('Fetching Experian token...');
     const token = await getExperianToken();
     console.log('Token received:', token ? 'yes' : 'no');
 
-    // Using confirmed working sandbox test case from Experian YAML docs
-    // SSN 111111111 is the official sandbox test SSN
+    // Using confirmed working sandbox test identity from Experian YAML docs
     const payload = {
       consumerPii: {
         primaryApplicant: {
-          name: { firstName, lastName },
-          ssn: { ssn: '111111111' },
+          name: {
+            lastName: 'CBRILEY',
+            firstName: 'KIMBERLY'
+          },
+          dob: {
+            dob: '01011969'
+          },
+          ssn: {
+            ssn: '111111111'
+          },
           currentAddress: {
-            line1: address,
-            city,
-            state,
-            zipCode: zip
+            line1: '5870 SPENCER PIKE',
+            city: 'MOUNT STERLING',
+            state: 'KY',
+            zipCode: '40353'
           }
         }
       },
-      requestor: {
-        subscriberCode: '2222222'
-      },
       permissiblePurpose: {
         type: '18'
+      },
+      requestor: {
+        subscriberCode: '2222222'
       },
       addOns: {
         riskModels: {
@@ -144,13 +148,13 @@ app.post('/api/experian/credit-score', async (req, res) => {
       }
     };
 
-    // Use direct URL (not gateway) — matching official sandbox server URL
-    const creditReportUrl = `${process.env.EXPERIAN_BASE_URL}/consumerservices/credit-profile/v2/credit-report`;
+    // Gateway URL required for Experian sandbox
+    const targetUrl = `${process.env.EXPERIAN_BASE_URL}/consumerservices/credit-profile/v2/credit-report`;
+    const gatewayUrl = `${process.env.EXPERIAN_BASE_URL}/eits/gdp/v1/request?targeturl=${encodeURIComponent(targetUrl)}`;
 
-    console.log('Calling Experian credit report API...');
-    console.log('URL:', creditReportUrl);
+    console.log('Calling Experian via gateway...');
 
-    const response = await fetch(creditReportUrl, {
+    const response = await fetch(gatewayUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -163,20 +167,17 @@ app.post('/api/experian/credit-score', async (req, res) => {
     const data = await response.json();
     console.log('Experian raw response:', JSON.stringify(data));
 
-    // Extract score from riskModel array
     const profile = data.creditProfile?.[0];
     const riskModel = profile?.riskModel?.[0];
     const score = riskModel?.score !== undefined ? parseInt(riskModel.score) : null;
 
     console.log('Extracted score:', score);
-    console.log('Score factors:', riskModel?.scoreFactors);
 
     res.json({
       score: score,
       scoreFactors: riskModel?.scoreFactors || [],
       scorePercentile: riskModel?.scorePercentile,
-      modelIndicator: riskModel?.modelIndicator,
-      raw: data
+      modelIndicator: riskModel?.modelIndicator
     });
 
   } catch (err) {
