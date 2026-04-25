@@ -21,7 +21,6 @@ const plaidConfig = new Configuration({
 
 const plaidClient = new PlaidApi(plaidConfig);
 
-// 1. Create a link token to start the Plaid Link flow
 app.post('/api/plaid/create-link-token', async (req, res) => {
   try {
     const response = await plaidClient.linkTokenCreate({
@@ -38,21 +37,17 @@ app.post('/api/plaid/create-link-token', async (req, res) => {
   }
 });
 
-// 2. Exchange public token for access token after user connects
 app.post('/api/plaid/exchange-token', async (req, res) => {
   try {
     const { public_token } = req.body;
     const response = await plaidClient.itemPublicTokenExchange({ public_token });
-    const accessToken = response.data.access_token;
-    const itemId = response.data.item_id;
-    res.json({ access_token: accessToken, item_id: itemId });
+    res.json({ access_token: response.data.access_token, item_id: response.data.item_id });
   } catch (err) {
     console.error(err.response?.data || err.message);
     res.status(500).json({ error: 'Failed to exchange token' });
   }
 });
 
-// 3. Fetch accounts using access token
 app.post('/api/plaid/get-accounts', async (req, res) => {
   try {
     const { access_token } = req.body;
@@ -64,7 +59,6 @@ app.post('/api/plaid/get-accounts', async (req, res) => {
   }
 });
 
-// 4. Fetch transactions using access token
 app.post('/api/plaid/get-transactions', async (req, res) => {
   try {
     const { access_token } = req.body;
@@ -105,41 +99,37 @@ const getExperianToken = async () => {
   return data.access_token;
 };
 
-// 5. Get credit score from Experian
 app.post('/api/experian/credit-score', async (req, res) => {
   try {
+    const { firstName, lastName, dob, ssn, address, city, state, zip } = req.body;
+
+    if (!firstName || !lastName || !ssn || !address) {
+      return res.status(400).json({ error: 'Missing required identity fields' });
+    }
+
     console.log('Fetching Experian token...');
     const token = await getExperianToken();
     console.log('Token received:', token ? 'yes' : 'no');
 
-    // Using confirmed working sandbox test identity from Experian YAML docs
     const payload = {
       consumerPii: {
         primaryApplicant: {
           name: {
-            lastName: 'CBRILEY',
-            firstName: 'KIMBERLY'
+            lastName: lastName.toUpperCase(),
+            firstName: firstName.toUpperCase()
           },
-          dob: {
-            dob: '01011969'
-          },
-          ssn: {
-            ssn: '111111111'
-          },
+          dob: { dob: dob || '' },
+          ssn: { ssn },
           currentAddress: {
-            line1: '5870 SPENCER PIKE',
-            city: 'MOUNT STERLING',
-            state: 'KY',
-            zipCode: '40353'
+            line1: address.toUpperCase(),
+            city: city.toUpperCase(),
+            state: state.toUpperCase(),
+            zipCode: zip
           }
         }
       },
-      permissiblePurpose: {
-        type: '18'
-      },
-      requestor: {
-        subscriberCode: '2222222'
-      },
+      permissiblePurpose: { type: '18' },
+      requestor: { subscriberCode: '2222222' },
       addOns: {
         riskModels: {
           modelIndicator: ['F', 'V3'],
@@ -148,7 +138,6 @@ app.post('/api/experian/credit-score', async (req, res) => {
       }
     };
 
-    // Gateway URL required for Experian sandbox
     const targetUrl = `${process.env.EXPERIAN_BASE_URL}/consumerservices/credit-profile/v2/credit-report`;
     const gatewayUrl = `${process.env.EXPERIAN_BASE_URL}/eits/gdp/v1/request?targeturl=${encodeURIComponent(targetUrl)}`;
 
@@ -174,7 +163,7 @@ app.post('/api/experian/credit-score', async (req, res) => {
     console.log('Extracted score:', score);
 
     res.json({
-      score: score,
+      score,
       scoreFactors: riskModel?.scoreFactors || [],
       scorePercentile: riskModel?.scorePercentile,
       modelIndicator: riskModel?.modelIndicator
