@@ -102,7 +102,7 @@ const getExperianToken = async () => {
     })
   });
   const data = await res.json();
-  console.log('Experian token response:', JSON.stringify(data));
+  console.log('Experian token response status:', data.access_token ? 'success' : 'failed');
   return data.access_token;
 };
 
@@ -139,19 +139,21 @@ app.post('/api/experian/credit-score', async (req, res) => {
       }
     };
 
-    console.log('Calling Experian credit report API...');
-    const response = await fetch(
-      `${process.env.EXPERIAN_BASE_URL}/consumerservices/credit-profile/v2/credit-report`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'clientReferenceId': 'SBMYSQL'
-        },
-        body: JSON.stringify(payload)
-      }
-    );
+    // Use the gateway URL pattern that Experian sandbox requires
+    const targetUrl = `${process.env.EXPERIAN_BASE_URL}/consumerservices/credit-profile/v2/credit-report`;
+    const gatewayUrl = `${process.env.EXPERIAN_BASE_URL}/eits/gdp/v1/request?targeturl=${encodeURIComponent(targetUrl)}`;
+
+    console.log('Calling Experian via gateway:', gatewayUrl);
+
+    const response = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'clientReferenceId': 'SBMYSQL'
+      },
+      body: JSON.stringify(payload)
+    });
 
     const data = await response.json();
     console.log('Experian response:', JSON.stringify(data));
