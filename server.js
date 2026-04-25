@@ -7,6 +7,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ─── PLAID SETUP ────────────────────────────────────────────
+
 const plaidConfig = new Configuration({
   basePath: PlaidEnvironments[process.env.PLAID_ENV || 'sandbox'],
   baseOptions: {
@@ -80,6 +82,88 @@ app.post('/api/plaid/get-transactions', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch transactions' });
   }
 });
+
+// ─── EXPERIAN SETUP ─────────────────────────────────────────
+
+// Helper: get Experian access token
+const getExperianToken = async () => {
+  const res = await fetch(`${process.env.EXPERIAN_BASE_URL}/oauth2/v1/token`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'Grant_type': 'password'
+    },
+    body: JSON.stringify({
+      username: process.env.EXPERIAN_USERNAME,
+      password: process.env.EXPERIAN_PASSWORD,
+      client_id: process.env.EXPERIAN_CLIENT_ID,
+      client_secret: process.env.EXPERIAN_CLIENT_SECRET
+    })
+  });
+  const data = await res.json();
+  return data.access_token;
+};
+
+// 5. Get credit score from Experian
+app.post('/api/experian/credit-score', async (req, res) => {
+  try {
+    const { firstName, lastName, ssn, address, city, state, zip } = req.body;
+
+    const token = await getExperianToken();
+
+    const response = await fetch(
+      `${process.env.EXPERIAN_BASE_URL}/consumerservices/credit-profile/v2/credit-report`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'clientReferenceId': 'SBMYSQL'
+        },
+        body: JSON.stringify({
+          consumerPii: {
+            primaryApplicant: {
+              name: { firstName, lastName },
+              ssn: { ssn },
+              currentAddress: {
+                line1: address,
+                city,
+                state,
+                zipCode: zip
+              }
+            }
+          },
+          requestor: {
+            subscriberCode: process.env.EXPERIAN_SUBSCRIBER_CODE
+          },
+          addOns: {
+            riskModels: {
+              modelIndicator: ['V4'],
+              scorePercentile: 'Y'
+            }
+          }
+        })
+      }
+    );
+
+    const data = await response.json();
+    const profile = data.creditProfile?.[0];
+    const riskModel = profile?.riskModel?.[0];
+
+    res.json({
+      score: parseInt(riskModel?.score),
+      scoreFactors: riskModel?.scoreFactors || [],
+      scorePercentile: riskModel?.scorePercentile
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch credit score' });
+  }
+});
+
+// ─── START SERVER ───────────────────────────────────────────
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Bird Wallet API running on port ${PORT}`));
