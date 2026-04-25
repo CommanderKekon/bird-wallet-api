@@ -2,10 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
+const { Resend } = require('resend');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ─── PLAID SETUP ────────────────────────────────────────────
 
@@ -172,6 +175,30 @@ app.post('/api/experian/credit-score', async (req, res) => {
   } catch (err) {
     console.error('Experian error:', err);
     res.status(500).json({ error: 'Failed to fetch credit score', details: err.message });
+  }
+});
+
+// ─── EMAIL (RESEND) ──────────────────────────────────────────
+
+app.post('/api/email/send', async (req, res) => {
+  try {
+    const { to, subject, text, from_name } = req.body;
+
+    if (!to || !subject || !text) {
+      return res.status(400).json({ error: 'Missing required fields: to, subject, text' });
+    }
+
+    await resend.emails.send({
+      from: `${from_name || 'Bird Wallet'} <onboarding@resend.dev>`,
+      to: [to],
+      subject,
+      text,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Email error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
