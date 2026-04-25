@@ -102,6 +102,7 @@ const getExperianToken = async () => {
     })
   });
   const data = await res.json();
+  console.log('Experian token response:', JSON.stringify(data));
   return data.access_token;
 };
 
@@ -110,8 +111,35 @@ app.post('/api/experian/credit-score', async (req, res) => {
   try {
     const { firstName, lastName, ssn, address, city, state, zip } = req.body;
 
+    console.log('Fetching Experian token...');
     const token = await getExperianToken();
+    console.log('Token received:', token ? 'yes' : 'no');
 
+    const payload = {
+      consumerPii: {
+        primaryApplicant: {
+          name: { firstName, lastName },
+          ssn: { ssn },
+          currentAddress: {
+            line1: address,
+            city,
+            state,
+            zipCode: zip
+          }
+        }
+      },
+      requestor: {
+        subscriberCode: process.env.EXPERIAN_SUBSCRIBER_CODE
+      },
+      addOns: {
+        riskModels: {
+          modelIndicator: ['V4'],
+          scorePercentile: 'Y'
+        }
+      }
+    };
+
+    console.log('Calling Experian credit report API...');
     const response = await fetch(
       `${process.env.EXPERIAN_BASE_URL}/consumerservices/credit-profile/v2/credit-report`,
       {
@@ -121,45 +149,29 @@ app.post('/api/experian/credit-score', async (req, res) => {
           'Content-Type': 'application/json',
           'clientReferenceId': 'SBMYSQL'
         },
-        body: JSON.stringify({
-          consumerPii: {
-            primaryApplicant: {
-              name: { firstName, lastName },
-              ssn: { ssn },
-              currentAddress: {
-                line1: address,
-                city,
-                state,
-                zipCode: zip
-              }
-            }
-          },
-          requestor: {
-            subscriberCode: process.env.EXPERIAN_SUBSCRIBER_CODE
-          },
-          addOns: {
-            riskModels: {
-              modelIndicator: ['V4'],
-              scorePercentile: 'Y'
-            }
-          }
-        })
+        body: JSON.stringify(payload)
       }
     );
 
     const data = await response.json();
+    console.log('Experian response:', JSON.stringify(data));
+
     const profile = data.creditProfile?.[0];
     const riskModel = profile?.riskModel?.[0];
+    const score = riskModel?.score !== undefined ? parseInt(riskModel.score) : null;
+
+    console.log('Extracted score:', score);
 
     res.json({
-      score: parseInt(riskModel?.score),
+      score: score,
       scoreFactors: riskModel?.scoreFactors || [],
-      scorePercentile: riskModel?.scorePercentile
+      scorePercentile: riskModel?.scorePercentile,
+      raw: data
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch credit score' });
+    console.error('Experian error:', err);
+    res.status(500).json({ error: 'Failed to fetch credit score', details: err.message });
   }
 });
 
