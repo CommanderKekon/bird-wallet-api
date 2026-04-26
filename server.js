@@ -175,7 +175,7 @@ app.post('/api/experian/credit-score', async (req, res) => {
   }
 });
 
-// ─── EMAIL (MAILTRAP) ────────────────────────────────────────
+// ─── EMAIL (MAILTRAP SANDBOX) ────────────────────────────────
 
 app.post('/api/email/send', async (req, res) => {
   try {
@@ -185,7 +185,7 @@ app.post('/api/email/send', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: to, subject, text' });
     }
 
-    const response = await fetch('https://send.api.mailtrap.io/api/send', {
+    const response = await fetch('https://sandbox.api.mailtrap.io/api/send/4575878', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.MAILTRAP_API_KEY}`,
